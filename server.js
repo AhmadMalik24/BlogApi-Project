@@ -4,6 +4,7 @@ import express from "express";
 import dotenv from "dotenv";
 import apiRouter from "./src/api/routes/index.js";
 import { notFoundHandler, errorHandler } from "./src/api/middleware/errorHandler.js";
+import setupSwagger from "./src/config/swagger.js";
 dotenv.config();
 
 const app = express();
@@ -16,6 +17,7 @@ connectDB();
 app.use(cors);
 app.use(express.json());
 app.use('/api', apiRouter);
+setupSwagger(app);
 app.use(errorHandler);
 // Routes
 // Define your routes here (e.g., app.use('/api/users', userRoutes);)

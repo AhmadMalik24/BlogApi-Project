@@ -9,8 +9,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon server.js",
-    "seed":"node src/scripts/run-seed.js",
-    "seed:reset":"node src/scripts/seedReset.js --reset"
+    "seed": "node src/scripts/run-seed.js",
+    "seed:reset": "node src/scripts/seedReset.js --reset"
   },
   "keywords": [],
   "author": "",
@@ -20,7 +20,7 @@
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
-    "bull-board": "^1.7.2",
+    "bull-board": "^0.10.0",
     "cloudinary": "^2.10.0",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
@@ -48,6 +48,8 @@
     "sharp": "^0.35.3",
     "slugify": "^1.6.9",
     "stripe": "^22.5.0",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "^14.0.1",
     "winston": "^3.19.0",
     "xss": "^1.0.15",
