@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerUser, loginUser, logoutUser, refreshToken } from '../../controllers/auth.controller.js';
+import { registerUser, loginUser, logoutUser, refreshToken,forgotPassword,resetPassword } from '../../controllers/auth.controller.js';
 import validate from '../../middleware/validation.js';
 import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, resendVerificationSchema } from '../../validations/auth.validation.js';
 import { protectRefreshToken } from "../../middleware/auth.js";
@@ -86,8 +86,8 @@ router.post('/logout', protectRefreshToken, logoutUser);
  *       200:
  *         description: User logged out successfully
  */
-// router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
-// router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
+router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
+router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
 // router.post('/change-password', validate(changePasswordSchema), changePassword);
 router.post('/refresh-token', protectRefreshToken, refreshToken);
 

@@ -6,7 +6,7 @@ import {createPostValidationSchema,updatePostValidationSchema,deletePostValidati
 
 
 const router = express.Router();
-router.use(protect); // Apply authentication middleware to all routes in this router
+router.use(protect); 
 router.get('/search', searchPosts); // Search posts route should be defined before the general GET route
 
 /**

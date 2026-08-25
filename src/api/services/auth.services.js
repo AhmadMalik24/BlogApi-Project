@@ -22,4 +22,14 @@ const GetUserByEmail = async (email) => {
     return user;
 };
 
-export { CreateUser, GetUserByEmail };
+const UpdateUserPassword = async (userId, newPassword) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error('User not found');
+    }
+    user.password = newPassword;
+    await user.save();
+    return user;
+};
+
+export { CreateUser, GetUserByEmail, UpdateUserPassword };

@@ -127,6 +127,13 @@ const forgotPasswordSchema = joi.object({
  * ✅ RESET PASSWORD VALIDATION
  */
 const resetPasswordSchema = joi.object({
+  token: joi.string()
+    .required()
+    .messages({
+      'string.base': 'Token must be a string',
+      'string.empty': 'Token is required',
+      'any.required': 'Token is required'
+    }),
   newPassword: joi.string()
     .min(8)
     .max(100)
@@ -139,16 +146,6 @@ const resetPasswordSchema = joi.object({
       'string.max': 'Password cannot exceed 100 characters',
       'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (!@#$%^&*)',
       'any.required': 'New password is required'
-    }),
-
-  confirmPassword: joi.string()
-    .valid(joi.ref('newPassword'))
-    .required()
-    .messages({
-      'string.base': 'Confirm password must be a string',
-      'string.empty': 'Please confirm your password',
-      'any.only': 'Passwords do not match',
-      'any.required': 'Please confirm your password'
     })
 });
 

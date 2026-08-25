@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect } from "../../middleware/auth.js";
-import { buyPost, refund, getPaymentDetails, getAllPaymentsUser } from "../../controllers/payment.controller.js";
+import { buyPost, refund, getPaymentDetails, getAllPaymentsUser,rechargeWallet } from "../../controllers/payment.controller.js";
 import {paymentValidationSchema,postIdValidationSchema,refundValidationSchema} from "../../validations/payment.validation.js";
 import validate from '../../middleware/validation.js';
 const paymentRouter = express.Router();
@@ -21,6 +21,32 @@ paymentRouter.get('/history', getAllPaymentsUser);        // ← MOVE THIS UP!
  *         description: Payment history retrieved successfully
  */
 
+
+paymentRouter.post('/recharge', rechargeWallet);         // ← Specific path
+
+/**
+ * @swagger
+ * /payment/recharge:
+ *   post:
+ *     summary: Recharge wallet balance
+ *     tags: [Payments]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, paymentMethod]
+ *             properties:
+ *               amount:
+ *                 type: number
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [credit_card, debit_card, paypal, Stripe, bank_transfer]
+ *     responses:
+ *       200:
+ *         description: Wallet recharged successfully
+ */
 paymentRouter.post('/buy/:postId', validate(postIdValidationSchema,'params'), buyPost);              // ← Specific path
 
 /**

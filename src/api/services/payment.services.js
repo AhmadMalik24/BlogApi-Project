@@ -18,6 +18,7 @@ const CreatePayment = async ({ user, paymentMethod, post }) => {
 
     const postDoc = await Post.findById(post);
     if (!postDoc) throw new Error('Post not found');
+    if(!postDoc.isPremium) throw new Error('This post is not premium content');
 
     const authorDoc = await User.findById(postDoc.author);
     if (!authorDoc) throw new Error('Author not found');
@@ -177,6 +178,47 @@ const GetAllPaymentsForUser = async (userId,limit,afterId) => {
     };
 };
 
+const RechargeWallet = async (userId, amount,paymentMethod) => {
+    if (amount <= 0) {
+        throw new Error('Recharge amount must be greater than zero');
+    }
+    if (!paymentMethod) {
+        throw new Error('Payment method is required for wallet recharge');
+    }
 
-export { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser };
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const user = await User.findById(userId).session(session);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Update wallet balance
+        user.walletBalance += amount;
+        await user.save({ session });
+
+        // Create a payment record for the recharge
+        const payment = new Payment({
+            user: userId,
+            amount: amount,
+            method: paymentMethod,
+            status: 'completed'
+        });
+        await payment.save({ session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return payment;
+
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        throw error;
+    }
+};
+
+export { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser, RechargeWallet };
 

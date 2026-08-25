@@ -4,7 +4,8 @@ const userValidationSchema = joi.object({
     username: joi.string().required(),
     email: joi.string().email().required(),
     password: joi.string().min(6).required(),
-    role: joi.string().valid('user', 'admin').optional()
+    role: joi.string().valid('user', 'admin').optional(),
+    bio: joi.string().optional()
 });
 
 export default userValidationSchema;

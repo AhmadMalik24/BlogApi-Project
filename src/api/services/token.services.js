@@ -5,7 +5,8 @@ import { Token } from "../../database/models/index.js";
 
 
 dotenv.config();
-const SaveRefreshToken = async (userId, token, type, expiresAt, userAgent, ip) => {
+const SaveToken = async (userId, token, type, expiresAt, userAgent, ip) => {
+
     const tokenDoc = new Token({
         user: userId,
         token,
@@ -47,7 +48,9 @@ const isTokenExpired = (expiresAt) => {
 const getTokenByUserIdAndType = async (userId, type) => {
     const tokenDoc = await Token.findOne({ user: userId, type }).sort({ createdAt: -1 });
     if (!tokenDoc) {
-        throw new Error('Token not found');
+        const error = new Error('Invalid refresh token');
+        error.statusCode = 401; // Set HTTP status code for your error handler
+        throw error;
     }
     const decryptedToken = decryptToken(tokenDoc.token);
     const isExpired = isTokenExpired(tokenDoc.expiresAt);
@@ -59,7 +62,7 @@ const deleteTokenByUserIdAndType = async (userId, type) => {
     return result.deletedCount > 0;
 };
 
-export { SaveRefreshToken, encryptToken, decryptToken, getTokenByUserIdAndType, deleteTokenByUserIdAndType };
+export { SaveToken, encryptToken, decryptToken, getTokenByUserIdAndType, deleteTokenByUserIdAndType };
 
 
 
