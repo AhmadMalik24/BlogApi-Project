@@ -1,8 +1,7 @@
 import mongoose from 'mongoose';
 
-import { User,Payment,Post } from "../../database/models/index.js";
-
-
+import { User, Payment, Post } from "../../database/models/index.js";
+import { stripe } from "./../../config/stripe.js";
 
 const CreatePayment = async ({ user, paymentMethod, post }) => {
     console.log('CreatePayment called with:', { user, paymentMethod, post });
@@ -18,16 +17,16 @@ const CreatePayment = async ({ user, paymentMethod, post }) => {
 
     const postDoc = await Post.findById(post);
     if (!postDoc) throw new Error('Post not found');
-    if(!postDoc.isPremium) throw new Error('This post is not premium content');
+    if (!postDoc.isPremium) throw new Error('This post is not premium content');
 
     const authorDoc = await User.findById(postDoc.author);
     if (!authorDoc) throw new Error('Author not found');
 
     // ✅ 3. Check if user already owns this post
-    const existingPayment = await Payment.findOne({ 
-        user: user, 
+    const existingPayment = await Payment.findOne({
+        user: user,
         post: post,
-        status: 'completed' 
+        status: 'completed'
     });
     if (existingPayment) {
         throw new Error('You already own this post');
@@ -101,7 +100,7 @@ const RefundPayment = async (paymentId, refundAmount, refundReason) => {
         payment.refundedAmount += refundAmount;
         payment.refundReason = refundReason;
         payment.refundedAt = new Date();
-        
+
         if (payment.refundedAmount === payment.amount) {
             payment.status = 'refunded';
         }
@@ -147,7 +146,7 @@ const GetPaymentDetails = async (paymentId, userId) => {
 };
 
 
-const GetAllPaymentsForUser = async (userId,limit,afterId) => {
+const GetAllPaymentsForUser = async (userId, limit, afterId) => {
 
     const query = { user: userId };
     if (afterId) {
@@ -178,42 +177,149 @@ const GetAllPaymentsForUser = async (userId,limit,afterId) => {
     };
 };
 
-const RechargeWallet = async (userId, amount,paymentMethod) => {
-    if (amount <= 0) {
-        throw new Error('Recharge amount must be greater than zero');
-    }
-    if (!paymentMethod) {
-        throw new Error('Payment method is required for wallet recharge');
-    }
-
+const RechargeWallet = async (userId, amount, paymentMethodId) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
+        console.log(`🔄 Recharging wallet for user: ${userId}`);
+        console.log(`💰 Amount: $${amount}`);
+        console.log(`💳 Payment Method: ${paymentMethodId}`);
+
+        // 1. Find user
         const user = await User.findById(userId).session(session);
         if (!user) {
             throw new Error('User not found');
         }
 
-        // Update wallet balance
-        user.walletBalance += amount;
-        await user.save({ session });
+        // 2. Check/create Stripe customer
+        if (!user.stripeCustomerId) {
+            console.log('🆕 Creating Stripe customer...');
+            const customer = await stripe.customers.create({
+                metadata: { userId: userId.toString() }
+            });
+            user.stripeCustomerId = customer.id;
+            await user.save({ session });
+            console.log(`✅ Customer created: ${customer.id}`);
+        }
 
-        // Create a payment record for the recharge
+        // 3. ✅ TRY to attach payment method (but don't fail if it doesn't work)
+        console.log('📎 Attempting to attach payment method...');
+        let isAttached = false;
+        try {
+            await stripe.paymentMethods.attach(paymentMethodId, {
+                customer: user.stripeCustomerId,
+            });
+            isAttached = true;
+            console.log('✅ Payment method attached successfully');
+        } catch (attachError) {
+            // In production, some cards may fail to attach
+            // But we can still try to charge them!
+            console.log(`⚠️ Could not attach: ${attachError.message}`);
+
+            // Only fail if it's a critical error
+            if (attachError.code === 'payment_method_invalid') {
+                throw new Error('Invalid payment method');
+            }
+
+            // For card_declined, insufficient_funds, etc.
+            // We CONTINUE and try to charge anyway
+            console.log('🔄 Continuing to attempt payment...');
+        }
+
+        // 4. ✅ ALWAYS create the PaymentIntent (THIS IS THE KEY!)
+        console.log('💳 Creating payment intent...');
+
+        let paymentIntent;
+        try {
+            paymentIntent = await stripe.paymentIntents.create({
+                amount: Math.round(amount * 100),
+                currency: 'usd',
+                customer: user.stripeCustomerId,
+                payment_method: paymentMethodId,
+                off_session: true,
+                confirm: true,
+                metadata: {
+                    userId: userId.toString(),
+                    amount: amount.toString(),
+                    paymentMethod: paymentMethodId,
+                    action: 'wallet_recharge'
+                }
+            });
+
+            console.log(`✅ Payment intent created: ${paymentIntent.id}`);
+            console.log(`📊 Status: ${paymentIntent.status}`);
+
+        } catch (paymentError) {
+            console.error('❌ Payment error:', paymentError.message);
+
+            // ✅ IMPORTANT: Even if payment fails, PaymentIntent was created!
+            // We can record this in our database
+            if (paymentError.payment_intent?.id) {
+                console.log(`📝 PaymentIntent was created: ${paymentError.payment_intent.id}`);
+
+                // Save the failed payment
+                const payment = new Payment({
+                    user: userId,
+                    amount: amount,
+                    method: 'stripe',
+                    status: 'failed',
+                    stripePaymentId: paymentError.payment_intent.id,
+                    description: `Failed wallet recharge - $${amount}`,
+                    failureReason: paymentError.message,
+                    failureCode: paymentError.code,
+                    declineCode: paymentError.decline_code
+                });
+                await payment.save({ session });
+
+                await session.commitTransaction();
+                session.endSession();
+
+                return {
+                    success: false,
+                    paymentIntentId: paymentError.payment_intent.id,
+                    status: 'failed',
+                    errorMessage: paymentError.message,
+                    payment: payment
+                };
+            }
+
+            throw paymentError;
+        }
+
+        // 5. Create payment record (status: pending)
         const payment = new Payment({
             user: userId,
             amount: amount,
-            method: paymentMethod,
-            status: 'completed'
+            method: 'stripe',
+            status: 'pending', // Webhook will update
+            stripePaymentId: paymentIntent.id,
+            description: `Wallet recharge - $${amount}`,
+            cardLastFourDigits: paymentIntent.payment_method_details?.card?.last4,
+            cardType: paymentIntent.payment_method_details?.card?.brand,
+            isAttached: isAttached
         });
         await payment.save({ session });
+        console.log(`✅ Payment record created: ${payment._id}`);
+
+        // ⚠️ DON'T update wallet here - webhook handles it
+        // This prevents double-charging and race conditions
 
         await session.commitTransaction();
         session.endSession();
 
-        return payment;
+        return {
+            success: paymentIntent.status === 'succeeded',
+            paymentIntentId: paymentIntent.id,
+            status: paymentIntent.status,
+            payment: payment,
+            message: paymentIntent.status === 'succeeded'
+                ? 'Payment successful, wallet will be updated shortly'
+                : 'Payment processing, wallet will be updated when confirmed'
+        };
 
     } catch (error) {
+        console.error('❌ Recharge error:', error.message);
         await session.abortTransaction();
         session.endSession();
         throw error;

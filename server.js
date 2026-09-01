@@ -15,7 +15,6 @@ connectDB();
 
 // Middleware
 app.use(cors);
-app.use(express.json());
 app.use('/api', apiRouter);
 setupSwagger(app);
 app.use(errorHandler);
