@@ -15,12 +15,12 @@ const withdrawalSchema = new mongoose.Schema({
     amount: {
         type: Number,
         required: [true, 'Withdrawal amount is required'],
-        min: [0.50, 'Minimum withdrawal is $0.50'],
+        min: [0.53, 'Minimum withdrawal is $0.53'],
         max: [99999, 'Maximum withdrawal is $99,999']
     },
     fee: {
         type: Number,
-        default: 0.25  // Stripe's standard transfer fee
+        default: 0 // Set to 5% of the gross withdrawal when it is requested.
     },
     netAmount: {
         type: Number,

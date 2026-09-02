@@ -261,12 +261,16 @@ Content-Type: application/json
    - ✅ `payment_intent.succeeded`
    - ✅ `payment_intent.payment_failed`
    - ✅ `payment_intent.requires_action`
+   - ✅ `transfer.reversed`
+   - ✅ `payout.paid`
+   - ✅ `payout.failed`
 
 ### 2. Save Webhook Secret
 
 ```bash
 # In your .env file
 STRIPE_WEBHOOK_SECRET=whsec_live_XXXXXXXXXXXXX
+STRIPE_WALLET_CURRENCY=usd
 ```
 
 ### 3. Test Webhook Connection

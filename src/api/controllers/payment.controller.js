@@ -100,7 +100,7 @@ const rechargeWallet = catchAsync(async (req, res) => {
     }
 
     // Call the service to recharge the wallet
-    const result = await RechargeWallet(req.user.id, amount, paymentMethodId);
+    const result = await RechargeWallet(req.user.id, amount, paymentMethodId, req.get('Idempotency-Key'));
 
     res.status(200).json({
         message: 'Wallet recharge processed',
@@ -109,7 +109,6 @@ const rechargeWallet = catchAsync(async (req, res) => {
 });
 
 export { buyPost, refund, getPaymentDetails, getAllPaymentsUser, rechargeWallet };
-
 
 
 

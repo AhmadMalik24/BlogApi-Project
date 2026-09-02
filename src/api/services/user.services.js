@@ -26,4 +26,24 @@ const GetUserDetails = async (userId) => {
     return user;
 };
 
-export { UpdateUserDetails, GetUserDetails };
+const SaveStripeOnboardingProfile = async (userId, profile) => {
+    const [month, day, year] = profile.dateOfBirth.split('/').map(Number);
+    const dateOfBirth = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(dateOfBirth.getTime()) || dateOfBirth.getUTCMonth() !== month - 1 || dateOfBirth.getUTCDate() !== day) {
+        throw new Error('dateOfBirth must be a real date in MM/DD/YYYY format');
+    }
+
+    const user = await User.findById(userId);
+    if (!user) throw new Error('User not found');
+
+    user.stripeOnboardingProfile = {
+        ...profile,
+        email: profile.email.toLowerCase(),
+        homeAddress: { ...profile.homeAddress, country: 'AU' },
+        dateOfBirth
+    };
+    await user.save();
+    return user.stripeOnboardingProfile;
+};
+
+export { UpdateUserDetails, GetUserDetails, SaveStripeOnboardingProfile };

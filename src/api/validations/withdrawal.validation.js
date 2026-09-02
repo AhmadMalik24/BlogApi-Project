@@ -51,7 +51,8 @@ const bankAccountValidationSchema = Joi.object({
         })
 });
 
-// Verification validation
+// Verification sync validation. Stripe Connect, not client-provided microdeposit values,
+// is the source of truth for an external account's status.
 const verifyBankAccountValidationSchema = Joi.object({
     bankAccountId: Joi.string()
         .pattern(/^[a-f0-9]{24}$/)
@@ -62,39 +63,22 @@ const verifyBankAccountValidationSchema = Joi.object({
             'any.required': 'Bank account ID is required'
         }),
 
-    amount1: Joi.number()
-        .min(0)
-        .max(99)
-        .required()
-        .messages({
-            'number.base': 'First microdeposit amount must be a number',
-            'number.min': 'Amount must be between 0-99 cents',
-            'number.max': 'Amount must be between 0-99 cents',
-            'any.required': 'First microdeposit amount is required'
-        }),
-
-    amount2: Joi.number()
-        .min(0)
-        .max(99)
-        .required()
-        .messages({
-            'number.base': 'Second microdeposit amount must be a number',
-            'number.min': 'Amount must be between 0-99 cents',
-            'number.max': 'Amount must be between 0-99 cents',
-            'any.required': 'Second microdeposit amount is required'
-        })
+    // Accepted for backwards compatibility with clients using the old microdeposit form.
+    // Stripe Connect's external-account status remains the verification source of truth.
+    amount1: Joi.number().min(0).max(99).optional(),
+    amount2: Joi.number().min(0).max(99).optional()
 });
 
 // Withdrawal validation
 const withdrawalValidationSchema = Joi.object({
     amount: Joi.number()
-        .min(0.50)
+        .min(0.53)
         .max(99999)
         .precision(2)
         .required()
         .messages({
             'number.base': 'Withdrawal amount must be a number',
-            'number.min': 'Minimum withdrawal is $0.50',
+            'number.min': 'Minimum withdrawal is $0.53 after the 5% platform fee',
             'number.max': 'Maximum withdrawal is $99,999',
             'number.precision': 'Amount must have at most 2 decimal places',
             'any.required': 'Withdrawal amount is required'

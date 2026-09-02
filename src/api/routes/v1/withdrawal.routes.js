@@ -31,7 +31,7 @@ withdrawalRouter.use(protect);
  *   post:
  *     summary: Add a new bank account for withdrawals
  *     tags: [Withdrawals]
- *     description: Add bank account details for custom onboarding. User must verify with microdeposits after.
+ *     description: Add a bank account to the user's Stripe Connect account. Complete Stripe onboarding before withdrawing.
  *     requestBody:
  *       required: true
  *       content:
@@ -129,34 +129,20 @@ withdrawalRouter.delete('/bank-accounts/:bankAccountId', deleteBankAccount);
  * @swagger
  * /withdrawal/bank-accounts/verify:
  *   post:
- *     summary: Verify bank account with microdeposit amounts
+ *     summary: Synchronize bank-account verification from Stripe
  *     tags: [Withdrawals]
- *     description: |
- *       After adding a bank account, user receives two microdeposits (typically 1-2 days).
- *       User must verify by providing the exact amounts received.
+ *     description: Confirms that the external account is accepted by Stripe Connect after onboarding.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [bankAccountId, amount1, amount2]
+ *             required: [bankAccountId]
  *             properties:
  *               bankAccountId:
  *                 type: string
  *                 example: 607f1f77bcf86cd799439011
- *               amount1:
- *                 type: number
- *                 minimum: 0
- *                 maximum: 99
- *                 description: First microdeposit amount in cents
- *                 example: 32
- *               amount2:
- *                 type: number
- *                 minimum: 0
- *                 maximum: 99
- *                 description: Second microdeposit amount in cents
- *                 example: 45
  *     responses:
  *       200:
  *         description: Bank account verified successfully
@@ -192,7 +178,7 @@ withdrawalRouter.post(
  *             properties:
  *               amount:
  *                 type: number
- *                 minimum: 0.50
+ *                 minimum: 0.53
  *                 maximum: 99999
  *                 example: 50.00
  *               bankAccountId:

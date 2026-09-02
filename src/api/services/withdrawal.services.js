@@ -1,8 +1,69 @@
 import mongoose from 'mongoose';
 import { User, BankAccount, Withdrawal } from '../../database/models/index.js';
-import { stripe } from '../../config/stripe.js';
+import { stripe, walletCurrency } from '../../config/stripe.js';
+import crypto from 'crypto';
 
 const PLATFORM_COUNTRY = process.env.STRIPE_PLATFORM_COUNTRY?.toUpperCase();
+
+const industryToMcc = {
+    software: '7372',
+    'computer software': '7372'
+};
+
+const prefillStripeConnectAccount = async (user, stripeConnectAccountId) => {
+    const profile = user.stripeOnboardingProfile;
+    if (!profile) return;
+
+    const address = profile.homeAddress;
+    const stripeAddress = address ? {
+        country: 'AU',
+        line1: address.streetAddress,
+        line2: address.apartmentUnit || undefined,
+        city: address.suburb,
+        state: address.state,
+        postal_code: address.postalCode
+    } : undefined;
+    const dateOfBirth = profile.dateOfBirth ? new Date(profile.dateOfBirth) : null;
+    const dob = dateOfBirth ? {
+        day: dateOfBirth.getUTCDate(),
+        month: dateOfBirth.getUTCMonth() + 1,
+        year: dateOfBirth.getUTCFullYear()
+    } : undefined;
+
+    const accountData = {
+        business_type: profile.businessType === 'company' ? 'company' : 'individual',
+        business_profile: {
+            url: profile.website || undefined,
+            product_description: profile.productDescription || undefined,
+            mcc: industryToMcc[profile.industry?.toLowerCase()] || undefined
+        },
+        metadata: {
+            platformUserId: user._id.toString(),
+            declaredBusinessType: profile.businessType,
+            declaredIndustry: profile.industry || ''
+        }
+    };
+
+    if (profile.businessType === 'company') {
+        accountData.company = {
+            name: profile.legalBusinessName,
+            phone: profile.phoneNumber,
+            address: stripeAddress,
+            tax_id: profile.hasABN ? profile.abnNumber : undefined
+        };
+    } else {
+        accountData.individual = {
+            first_name: profile.legalFirstName,
+            last_name: profile.legalLastName,
+            email: profile.email,
+            phone: profile.phoneNumber,
+            dob,
+            address: stripeAddress
+        };
+    }
+
+    await stripe.accounts.update(stripeConnectAccountId, accountData);
+};
 
 // ============================================
 // BANK ACCOUNT SERVICES
@@ -26,8 +87,7 @@ const AddBankAccount = async (userId, accountDetails) => {
         }
         console.log('✅ User found:', user.email);
 
-        // CHECK 2: User country is supported (optional for testing)
-        // For now we'll skip this, can add later
+
 
         // CHECK 3: No duplicate verified accounts
         const existingVerified = await BankAccount.findOne({
@@ -59,8 +119,7 @@ const AddBankAccount = async (userId, accountDetails) => {
             console.log('🆕 Creating Stripe Connected Account (v2 API)...');
 
             try {
-                // Using Stripe v2 Core Accounts API (v1 deprecated)
-                // Note: transfers requires card_payments capability in US
+                // Using Stripe v2
                 const stripeAccount = await stripe.core.accounts.create({
                     type: 'express',
                     country: PLATFORM_COUNTRY,
@@ -81,7 +140,7 @@ const AddBankAccount = async (userId, accountDetails) => {
             } catch (stripeError) {
                 console.error('❌ Stripe error creating account:', stripeError.message);
 
-                // Fallback: Try v1 if v2 fails (some older setups)
+                // Fallback: Try v1 
                 try {
                     console.log('🔄 Trying v1 Accounts API as fallback...');
                     const stripeAccount = await stripe.accounts.create({
@@ -128,7 +187,7 @@ const AddBankAccount = async (userId, accountDetails) => {
                     external_account: {
                         object: 'bank_account',
                         country: PLATFORM_COUNTRY,
-                        currency: 'aud',
+                        currency: walletCurrency,
                         account_holder_name: accountDetails.accountHolderName,
                         account_holder_type: 'individual',
                         routing_number: accountDetails.routingNumber,
@@ -184,7 +243,7 @@ const AddBankAccount = async (userId, accountDetails) => {
             isVerified: false,
             verificationStatus: 'pending',
             onboardingUrl,
-            message: 'Bank account added. You\'ll receive two microdeposits (typically 1-2 days). Complete Stripe onboarding before requesting a withdrawal.'
+            message: 'Bank account added. Complete Stripe Connect onboarding before requesting a withdrawal.'
         };
 
     } catch (error) {
@@ -248,14 +307,26 @@ const CreateConnectOnboardingLink = async (userId) => {
         }
     }
 
-    console.log('🔗 Creating Stripe onboarding link for account:', stripeConnectAccountId);
-
     const redirectUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const returnUrl = `${redirectUrl}/withdrawal/onboarding/complete`;
     const refreshUrl = `${redirectUrl}/withdrawal/onboarding/refresh`;
 
-    const accountDetails = await stripe.accounts.retrieve(stripeConnectAccountId);
-    const isOnboarded = accountDetails?.details_submitted === true && accountDetails?.payouts_enabled === true;
+    console.log('🔗 Checking Stripe onboarding status for account:', stripeConnectAccountId);
+    let accountDetails = await stripe.accounts.retrieve(stripeConnectAccountId);
+    const detailsSubmitted = accountDetails?.details_submitted === true;
+
+    // Stripe locks regulated identity fields after the hosted form is submitted. Prefill only
+    // before that point; repeated calls after onboarding must be read-only status checks.
+    if (!detailsSubmitted) {
+        await prefillStripeConnectAccount(user, stripeConnectAccountId);
+        accountDetails = await stripe.accounts.retrieve(stripeConnectAccountId);
+    }
+
+    const finalDetailsSubmitted = accountDetails?.details_submitted === true;
+    const finalTransfersEnabled = accountDetails?.capabilities?.transfers?.status === 'active';
+    const finalPayoutsEnabled = accountDetails?.payouts_enabled === true;
+    const isOnboarded = finalDetailsSubmitted
+        && (accountDetails?.capabilities?.transfers?.status === 'active' || accountDetails?.payouts_enabled === true);
 
     if (isOnboarded) {
         const loginLink = await stripe.accounts.createLoginLink(stripeConnectAccountId, {
@@ -267,6 +338,18 @@ const CreateConnectOnboardingLink = async (userId) => {
             message: 'Your Stripe onboarding is already complete. Use the login link below to manage the account.',
             stripeConnectAccountId,
             onboardingUrl: loginLink.url
+        };
+    }
+
+    if (finalDetailsSubmitted) {
+        return {
+            success: true,
+            status: 'pending_activation',
+            message: 'Your Stripe details were submitted and Stripe is activating payouts. This can take a few moments; please try your withdrawal again shortly.',
+            stripeConnectAccountId,
+            onboardingUrl: null,
+            transfersEnabled: finalTransfersEnabled,
+            payoutsEnabled: finalPayoutsEnabled
         };
     }
 
@@ -297,7 +380,7 @@ const GetBankAccounts = async (userId) => {
     return bankAccounts;
 };
 
-const VerifyBankAccount = async (userId, bankAccountId, microdeposit1, microdeposit2) => {
+const VerifyBankAccount = async (userId, bankAccountId) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -325,12 +408,9 @@ const VerifyBankAccount = async (userId, bankAccountId, microdeposit1, microdepo
             throw new Error('Too many verification attempts. Please contact support.');
         }
 
-        // VERIFY: Stripe Connect external account verification is not exposed on this SDK version.
-        // The supported API is to retrieve the attached external account and confirm it is accepted
-        // and not in an errored/failed state. We still accept the two microdeposit values from the
-        // caller so the API contract remains stable for custom onboarding flows, but Stripe itself
-        // validates the bank account on the external account resource rather than via a method that
-        // does not exist in this installed Stripe package.
+        // Connect external accounts are validated through Stripe Connect onboarding. There is no
+        // API in this integration that verifies client-supplied microdeposit amounts, so we only
+        // trust the status returned by Stripe.
         console.log('📡 Checking Stripe external account status...');
 
         try {
@@ -390,8 +470,7 @@ const DeleteBankAccount = async (userId, bankAccountId) => {
     try {
         console.log('🗑️ Deleting bank account:', bankAccountId);
 
-        // Find and delete
-        const bankAccount = await BankAccount.findOneAndDelete({
+        const bankAccount = await BankAccount.findOne({
             _id: bankAccountId,
             user: userId
         }).session(session);
@@ -400,7 +479,14 @@ const DeleteBankAccount = async (userId, bankAccountId) => {
             throw new Error('Bank account not found');
         }
 
-        console.log('✅ Bank account deleted');
+        // Keep Stripe and MongoDB in sync: removing only the local record leaves an active
+        // external account that could still receive Connect payouts.
+        await stripe.accounts.deleteExternalAccount(
+            bankAccount.stripeConnectAccountId,
+            bankAccount.bankAccountId
+        );
+        await bankAccount.deleteOne({ session });
+        console.log('✅ Bank account deleted from Stripe and MongoDB');
 
         await session.commitTransaction();
         session.endSession();
@@ -422,7 +508,7 @@ const DeleteBankAccount = async (userId, bankAccountId) => {
 // WITHDRAWAL SERVICES
 // ============================================
 
-const RequestWithdrawal = async (userId, amount, bankAccountId) => {
+const RequestWithdrawal = async (userId, amount, bankAccountId, requestIdempotencyKey) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -456,19 +542,75 @@ const RequestWithdrawal = async (userId, amount, bankAccountId) => {
         }
         console.log('✅ Verified bank account found');
 
-        // CHECK 4: Stripe connected account must be transfer-enabled and onboarded
+        // CHECK 4: Stripe connected account must be transfer-enabled and onboarded.
+        // Returning from Stripe's form can precede activation, so distinguish that temporary
+        // state from incomplete onboarding.
         const connectedAccount = await stripe.accounts.retrieve(bankAccount.stripeConnectAccountId);
+        const detailsSubmitted = connectedAccount?.details_submitted === true;
         const transfersEnabled = connectedAccount?.capabilities?.transfers?.status === 'active';
         const payoutsEnabled = connectedAccount?.payouts_enabled === true;
 
         if (!transfersEnabled && !payoutsEnabled) {
-            throw new Error('Stripe payout onboarding is not complete yet. Complete the connected account onboarding in Stripe before withdrawing funds.');
+            const error = new Error(
+                detailsSubmitted
+                    ? 'Your Stripe account is being activated. Please try your withdrawal again shortly.'
+                    : 'Complete Stripe payout onboarding before withdrawing funds.'
+            );
+            error.statusCode = 409;
+            throw error;
         }
 
-        // CALCULATE: Fee and net amount
-        const fee = 0.25; // Stripe standard fee
-        const netAmount = amount - fee;
+        // CALCULATE: retain 5% on the platform and transfer only the remainder.
+        const amountInCents = Math.round(amount * 100);
+        const feeInCents = Math.round(amountInCents * 0.05);
+        const netAmountInCents = amountInCents - feeInCents;
+        if (netAmountInCents < 50) {
+            throw new Error('Withdrawal amount is too small after the 5% platform fee. Minimum withdrawal is $0.53.');
+        }
+        const fee = feeInCents / 100;
+        const netAmount = netAmountInCents / 100;
         console.log(`💸 Amount: $${amount}, Fee: $${fee}, Net: $${netAmount}`);
+
+        const idempotencyKey = requestIdempotencyKey || crypto.randomUUID();
+        const existingWithdrawal = await Withdrawal.findOne({ user: userId, idempotencyKey }).session(session);
+        if (existingWithdrawal) {
+            await session.commitTransaction();
+            session.endSession();
+            return {
+                success: existingWithdrawal.status !== 'failed',
+                withdrawalId: existingWithdrawal._id,
+                amount: existingWithdrawal.amount,
+                netAmount: existingWithdrawal.netAmount,
+                fee: existingWithdrawal.fee,
+                status: existingWithdrawal.status,
+                stripeTransferId: existingWithdrawal.stripeTransferId,
+                bankAccountLast4: existingWithdrawal.bankAccountLast4,
+                expectedArrival: existingWithdrawal.expectedArrival,
+                message: 'This withdrawal request was already processed.'
+            };
+        }
+
+        // Reserve the wallet amount and create the local withdrawal before calling Stripe.
+        // This prevents two concurrent requests from spending the same wallet balance.
+        const withdrawal = new Withdrawal({
+            user: userId,
+            bankAccount: bankAccountId,
+            amount: amountInCents / 100,
+            fee,
+            netAmount,
+            bankAccountLast4: bankAccount.last4,
+            status: 'pending',
+            idempotencyKey,
+            requestedAt: new Date(),
+            expectedArrival: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+            metadata: { bankName: bankAccount.bankName, currency: walletCurrency }
+        });
+
+        user.walletBalance -= amountInCents / 100;
+        await user.save({ session });
+        await withdrawal.save({ session });
+        await session.commitTransaction();
+        session.endSession();
 
         // CREATE: Transfer on Stripe
         console.log('🔄 Creating Stripe transfer...');
@@ -476,15 +618,19 @@ const RequestWithdrawal = async (userId, amount, bankAccountId) => {
         let stripeTransfer;
         try {
             stripeTransfer = await stripe.transfers.create({
-                amount: Math.round(amount * 100),
-                currency: 'aud',
+                amount: netAmountInCents,
+                currency: walletCurrency,
                 destination: bankAccount.stripeConnectAccountId,
                 description: `Wallet withdrawal to ${bankAccount.last4}`,
                 metadata: {
                     userId: userId.toString(),
-                    bankAccountId: bankAccount._id.toString()
+                    bankAccountId: bankAccount._id.toString(),
+                    withdrawalId: withdrawal._id.toString(),
+                    grossAmount: (amountInCents / 100).toFixed(2),
+                    platformFee: fee.toFixed(2),
+                    netAmount: netAmount.toFixed(2)
                 }
-            });
+            }, { idempotencyKey });
 
             console.log('✅ Stripe transfer created:', stripeTransfer.id);
         } catch (stripeError) {
@@ -494,51 +640,31 @@ const RequestWithdrawal = async (userId, amount, bankAccountId) => {
                 throw new Error('Transfer failed: the destination bank account country does not match your Stripe platform country. Set STRIPE_PLATFORM_COUNTRY to the same country as your Stripe account and use a bank account in that region.');
             }
 
-            // Create failed withdrawal record for audit
-            const failedWithdrawal = new Withdrawal({
-                user: userId,
-                bankAccount: bankAccountId,
-                amount: amount,
-                fee: fee,
-                netAmount: netAmount,
-                bankAccountLast4: bankAccount.last4,
-                status: 'failed',
-                failureReason: stripeError.message,
-                failureCode: stripeError.code
-            });
-
-            await failedWithdrawal.save({ session });
+            // The reserved amount was never sent. Atomically refund it once.
+            const refundSession = await mongoose.startSession();
+            try {
+                refundSession.startTransaction();
+                const reservedWithdrawal = await Withdrawal.findOneAndUpdate(
+                    { _id: withdrawal._id, status: 'pending' },
+                    { status: 'failed', failureReason: stripeError.message, failureCode: stripeError.code, failedAt: new Date() },
+                    { new: true, session: refundSession }
+                );
+                if (reservedWithdrawal) {
+                    await User.updateOne({ _id: userId }, { $inc: { walletBalance: amountInCents / 100 } }, { session: refundSession });
+                }
+                await refundSession.commitTransaction();
+            } finally {
+                refundSession.endSession();
+            }
 
             throw new Error(`Transfer failed: ${stripeError.message}`);
         }
 
-        // DEDUCT: From user wallet
-        user.walletBalance -= amount;
-        await user.save({ session });
-        console.log(`✅ Wallet deducted. New balance: $${user.walletBalance}`);
-
-        // SAVE: Withdrawal record
-        const withdrawal = new Withdrawal({
-            user: userId,
-            bankAccount: bankAccountId,
-            amount: amount,
-            fee: fee,
-            netAmount: netAmount,
-            bankAccountLast4: bankAccount.last4,
-            status: 'processing',
-            stripeTransferId: stripeTransfer.id,
-            requestedAt: new Date(),
-            expectedArrival: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // +2 days
-            metadata: {
-                bankName: bankAccount.bankName
-            }
-        });
-
-        await withdrawal.save({ session });
+        await Withdrawal.updateOne(
+            { _id: withdrawal._id },
+            { status: 'processing', stripeTransferId: stripeTransfer.id }
+        );
         console.log('✅ Withdrawal record created:', withdrawal._id);
-
-        await session.commitTransaction();
-        session.endSession();
 
         return {
             success: true,
@@ -554,7 +680,7 @@ const RequestWithdrawal = async (userId, amount, bankAccountId) => {
         };
 
     } catch (error) {
-        await session.abortTransaction();
+        if (session.inTransaction()) await session.abortTransaction();
         session.endSession();
         console.error('❌ Error in RequestWithdrawal:', error.message);
         throw error;

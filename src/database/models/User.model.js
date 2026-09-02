@@ -74,6 +74,31 @@ const userSchema = new mongoose.Schema({
     unique: true,
     sparse: true
   },
+  // Data collected by our app and used to prefill Stripe Connect onboarding.
+  stripeOnboardingProfile: {
+    businessType: {
+      type: String,
+      enum: ['individual', 'sole_trader', 'company']
+    },
+    hasABN: Boolean,
+    abnNumber: String,
+    legalBusinessName: String,
+    legalFirstName: String,
+    legalLastName: String,
+    dateOfBirth: Date,
+    homeAddress: {
+      country: String,
+      streetAddress: String,
+      apartmentUnit: String,
+      suburb: String,
+      state: String,
+      postalCode: String
+    },
+    phoneNumber: String,
+    industry: String,
+    website: String,
+    productDescription: String
+  },
   savedPosts: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Post'

@@ -57,7 +57,7 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "Bank account added. You'll receive two microdeposits (typically 1-2 days).",
+  "message": "Bank account added. Complete Stripe Connect onboarding before requesting a withdrawal.",
   "data": {
     "bankAccountId": "607f1f77bcf86cd799439011",
     "last4": "6789",
@@ -158,13 +158,13 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "Withdrawal of $50 requested. You'll receive $49.75 (after $0.25 fee) in 1-2 business days.",
+  "message": "Withdrawal of $50 requested. You'll receive $47.50 (after $2.50 fee) in 1-2 business days.",
   "data": {
     "success": true,
     "withdrawalId": "607f1f77bcf86cd799439012",
     "amount": 50,
     "netAmount": 49.75,
-    "fee": 0.25,
+    "fee": 2.50,
     "status": "processing",
     "stripeTransferId": "tr_1A2B3C4D...",
     "bankAccountLast4": "6789",

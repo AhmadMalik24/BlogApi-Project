@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 import { User, Payment, Post } from "../../database/models/index.js";
-import { stripe } from "./../../config/stripe.js";
+import { stripe, walletCurrency } from "./../../config/stripe.js";
 
 const CreatePayment = async ({ user, paymentMethod, post }) => {
     console.log('CreatePayment called with:', { user, paymentMethod, post });
@@ -18,6 +19,13 @@ const CreatePayment = async ({ user, paymentMethod, post }) => {
     const postDoc = await Post.findById(post);
     if (!postDoc) throw new Error('Post not found');
     if (!postDoc.isPremium) throw new Error('This post is not premium content');
+
+    // Can not buy your own post
+    if (postDoc.author.equals(userDoc._id)) {
+        const error = new Error('You cannot purchase your own post');
+        error.statusCode = 403;
+        throw error;
+    }
 
     const authorDoc = await User.findById(postDoc.author);
     if (!authorDoc) throw new Error('Author not found');
@@ -177,19 +185,33 @@ const GetAllPaymentsForUser = async (userId, limit, afterId) => {
     };
 };
 
-const RechargeWallet = async (userId, amount, paymentMethodId) => {
+const RechargeWallet = async (userId, amount, paymentMethodId, requestIdempotencyKey) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-        console.log(`🔄 Recharging wallet for user: ${userId}`);
-        console.log(`💰 Amount: $${amount}`);
-        console.log(`💳 Payment Method: ${paymentMethodId}`);
+        console.log(`Recharging wallet for user: ${userId}`);
+        console.log(`Amount: $${amount}`);
+        console.log(`Payment Method: ${paymentMethodId}`);
 
         // 1. Find user
         const user = await User.findById(userId).session(session);
         if (!user) {
             throw new Error('User not found');
+        }
+
+        const idempotencyKey = requestIdempotencyKey || crypto.randomUUID();
+        const existingPayment = await Payment.findOne({ user: userId, idempotencyKey }).session(session);
+        if (existingPayment) {
+            await session.commitTransaction();
+            session.endSession();
+            return {
+                success: existingPayment.status === 'completed',
+                paymentIntentId: existingPayment.stripePaymentId,
+                status: existingPayment.status,
+                payment: existingPayment,
+                message: 'This recharge request was already processed.'
+            };
         }
 
         // 2. Check/create Stripe customer
@@ -203,7 +225,7 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
             console.log(`✅ Customer created: ${customer.id}`);
         }
 
-        // 3. ✅ TRY to attach payment method (but don't fail if it doesn't work)
+        // 3. TRY to attach payment method (but don't fail if it doesn't work)
         console.log('📎 Attempting to attach payment method...');
         let isAttached = false;
         try {
@@ -234,10 +256,15 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
         try {
             paymentIntent = await stripe.paymentIntents.create({
                 amount: Math.round(amount * 100),
-                currency: 'usd',
+                currency: walletCurrency,
                 customer: user.stripeCustomerId,
                 payment_method: paymentMethodId,
-                off_session: true,
+                // Wallet recharge uses a PaymentMethod collected in Stripe.js. Redirect-based
+                // methods need a return_url, so explicitly exclude them from this API flow.
+                automatic_payment_methods: {
+                    enabled: true,
+                    allow_redirects: 'never'
+                },
                 confirm: true,
                 metadata: {
                     userId: userId.toString(),
@@ -245,7 +272,7 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
                     paymentMethod: paymentMethodId,
                     action: 'wallet_recharge'
                 }
-            });
+            }, { idempotencyKey });
 
             console.log(`✅ Payment intent created: ${paymentIntent.id}`);
             console.log(`📊 Status: ${paymentIntent.status}`);
@@ -266,9 +293,9 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
                     status: 'failed',
                     stripePaymentId: paymentError.payment_intent.id,
                     description: `Failed wallet recharge - $${amount}`,
-                    failureReason: paymentError.message,
-                    failureCode: paymentError.code,
-                    declineCode: paymentError.decline_code
+                    failedReason: paymentError.message,
+                    failedAt: new Date(),
+                    idempotencyKey
                 });
                 await payment.save({ session });
 
@@ -297,7 +324,8 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
             description: `Wallet recharge - $${amount}`,
             cardLastFourDigits: paymentIntent.payment_method_details?.card?.last4,
             cardType: paymentIntent.payment_method_details?.card?.brand,
-            isAttached: isAttached
+            isAttached: isAttached,
+            idempotencyKey
         });
         await payment.save({ session });
         console.log(`✅ Payment record created: ${payment._id}`);
@@ -311,6 +339,7 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
         return {
             success: paymentIntent.status === 'succeeded',
             paymentIntentId: paymentIntent.id,
+            clientSecret: paymentIntent.client_secret,
             status: paymentIntent.status,
             payment: payment,
             message: paymentIntent.status === 'succeeded'
@@ -327,4 +356,3 @@ const RechargeWallet = async (userId, amount, paymentMethodId) => {
 };
 
 export { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser, RechargeWallet };
-

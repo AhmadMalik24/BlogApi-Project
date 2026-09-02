@@ -74,7 +74,7 @@ const getBankAccounts = catchAsync(async (req, res) => {
 });
 
 const verifyBankAccount = catchAsync(async (req, res) => {
-    const { bankAccountId, amount1, amount2 } = req.body;
+    const { bankAccountId } = req.body;
 
     if (!req.user || !req.user.id) {
         const error = new Error('Authentication required');
@@ -82,7 +82,7 @@ const verifyBankAccount = catchAsync(async (req, res) => {
         throw error;
     }
 
-    const result = await VerifyBankAccount(req.user.id, bankAccountId, amount1, amount2);
+    const result = await VerifyBankAccount(req.user.id, bankAccountId);
 
     res.status(200).json({
         success: result.success,
@@ -123,7 +123,7 @@ const requestWithdrawal = catchAsync(async (req, res) => {
         throw error;
     }
 
-    const result = await RequestWithdrawal(req.user.id, amount, bankAccountId);
+    const result = await RequestWithdrawal(req.user.id, amount, bankAccountId, req.get('Idempotency-Key'));
 
     res.status(200).json({
         success: result.success,
