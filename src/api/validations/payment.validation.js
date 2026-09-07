@@ -1,15 +1,15 @@
 import Joi from "joi";
 
+
 const paymentValidationSchema = Joi.object({
     paymentMethod: Joi.string()
         .valid('credit_card', 'debit_card', 'paypal', 'Stripe', 'bank_transfer')
         .required()
         .messages({
             'string.base': 'Payment method must be a string',
-            'any.required': 'Payment method is required',
-            'any.only': 'Invalid payment method'
-        }),
-    
+            'any.only': 'Payment method must be one of [credit_card, debit_card, paypal, Stripe, bank_transfer]',
+            'any.required': 'Payment method is required'
+        })
 });
 
 const postIdValidationSchema = Joi.object({
@@ -46,4 +46,4 @@ const refundValidationSchema = Joi.object({
         })
 });
 
-export { paymentValidationSchema, postIdValidationSchema, refundValidationSchema };
+export { paymentValidationSchema,postIdValidationSchema, refundValidationSchema };

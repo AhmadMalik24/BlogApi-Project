@@ -21,12 +21,21 @@ const paymentSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'completed','refunded', 'failed'],
+    enum: ['pending', 'completed', 'refunded', 'failed'],
     default: 'pending'
   },
   method: {
-    type: String,
-    enum: ['credit_card', 'debit_card', 'paypal', 'stripe', 'bank_transfer']
+    type: String
+  },
+  currentBalance: {
+    type: Number,
+    min: [0, 'Current balance cannot be negative'],
+    default: 0
+  },
+  newBalance: {
+    type: Number,
+    min: [0, 'New balance cannot be negative'],
+    default: 0
   },
   stripePaymentId: {
     type: String,
@@ -75,6 +84,12 @@ const paymentSchema = new mongoose.Schema({
   },
   cardType: {
     type: String
+  },
+  idempotencyKey: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
   }
 }, {
   timestamps: true,
@@ -84,6 +99,9 @@ const paymentSchema = new mongoose.Schema({
 
 
 
+
+// Compound index for preventing duplicate webhook processing
+paymentSchema.index({ stripePaymentId: 1, status: 1 });
 
 const Payment = mongoose.model('Payment', paymentSchema);
 export default Payment;

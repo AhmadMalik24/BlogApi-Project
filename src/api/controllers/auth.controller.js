@@ -1,5 +1,5 @@
 import catchAsync from "../../utils/catchAsync.js";
-import { CreateUser, GetUserByEmail, UpdateUserPassword } from "../services/auth.services.js";
+import { CreateUser, GetUserByEmail, UpdateUserPassword,createStripeCustomer } from "../services/auth.services.js";
 import { generateToken, generateRefreshToken, verifyToken, verifyRefreshToken, resetPasswordToken, verifyResetPasswordToken } from "../../utils/jwt.js";
 import { SaveToken, encryptToken, deleteTokenByUserIdAndType, getTokenByUserIdAndType } from "../services/token.services.js";
 import { expireIn } from "../../config/index.js";
@@ -13,7 +13,17 @@ import { sendEmail } from "../../integrations/email/client.js";
 
 const registerUser = catchAsync(async (req, res) => {
     const { username, email, password, firstName, lastName, role } = req.body;
-    const user = await CreateUser({ username, email, password, firstName, lastName, role });
+
+    const existingUser = await GetUserByEmail(email);
+    if (existingUser) {
+        const error = new Error('Email already in use');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const stripeCustomerId = await createStripeCustomer(email, firstName, lastName);
+
+    const user = await CreateUser({ username, email, password, firstName, lastName, role, stripeCustomerId });
     res.status(201).json({ message: 'User registered successfully', user });
 
 });
