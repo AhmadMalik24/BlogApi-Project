@@ -1,27 +1,14 @@
 import Joi from "joi";
 
+
 const paymentValidationSchema = Joi.object({
-    amount: Joi.number()
-        .min(0.50)
-        .max(99999)
-        .precision(2)
+    paymentMethod: Joi.string()
+        .valid('credit_card', 'debit_card', 'paypal', 'Stripe', 'bank_transfer')
         .required()
         .messages({
-            'number.base': 'Amount must be a number',
-            'number.min': 'Amount must be at least $0.50',
-            'number.max': 'Amount cannot exceed $99,999',
-            'number.precision': 'Amount must have at most 2 decimal places',
-            'any.required': 'Amount is required'
-        }),
-    paymentMethodId: Joi.string()
-        .pattern(/^pm_[a-zA-Z0-9_]+$/)
-        .min(4)
-        .required()
-        .messages({
-            'string.base': 'Payment method ID must be a string',
-            'string.pattern.base': 'Invalid Stripe PaymentMethod ID format (should be pm_xxx...)',
-            'string.min': 'Payment method ID is too short',
-            'any.required': 'Payment method ID is required'
+            'string.base': 'Payment method must be a string',
+            'any.only': 'Payment method must be one of [credit_card, debit_card, paypal, Stripe, bank_transfer]',
+            'any.required': 'Payment method is required'
         })
 });
 
@@ -59,4 +46,4 @@ const refundValidationSchema = Joi.object({
         })
 });
 
-export { paymentValidationSchema, postIdValidationSchema, refundValidationSchema };
+export { paymentValidationSchema,postIdValidationSchema, refundValidationSchema };

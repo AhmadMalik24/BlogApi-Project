@@ -25,8 +25,17 @@ const paymentSchema = new mongoose.Schema({
     default: 'pending'
   },
   method: {
-    type: String,
-    enum: ['credit_card', 'debit_card', 'paypal', 'stripe', 'bank_transfer', 'pm_card_visa', 'pm_card_chargeDeclinedInsufficientFunds', 'pm_card_visa_chargeDeclined']
+    type: String
+  },
+  currentBalance: {
+    type: Number,
+    min: [0, 'Current balance cannot be negative'],
+    default: 0
+  },
+  newBalance: {
+    type: Number,
+    min: [0, 'New balance cannot be negative'],
+    default: 0
   },
   stripePaymentId: {
     type: String,

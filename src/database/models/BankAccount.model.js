@@ -17,14 +17,10 @@ const bankAccountSchema = new mongoose.Schema({
     accountNumber: {
         type: String,
         required: [true, 'Account number is required'],
-        minlength: [8, 'Account number must be at least 8 digits'],
-        maxlength: [20, 'Account number cannot exceed 20 digits'],
-        match: [/^\d{8,20}$/, 'Account number must contain only digits']
     },
     routingNumber: {
         type: String,
-        required: [true, 'Routing number is required'],
-        match: [/^\d{6,9}$/, 'Routing number must be 6-9 digits']
+        required: [true, 'Routing number is required']
     },
     accountType: {
         type: String,

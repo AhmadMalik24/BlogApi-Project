@@ -1,5 +1,5 @@
 import catchAsync from '../../utils/catchAsync.js';
-import { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser, RechargeWallet } from "../services/payment.services.js";
+import { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser, RechargeWallet, GetSavedCards } from "../services/payment.services.js";
 
 const buyPost = catchAsync(async (req, res) => {
     const { postId } = req.params;
@@ -103,12 +103,30 @@ const rechargeWallet = catchAsync(async (req, res) => {
     const result = await RechargeWallet(req.user.id, amount, paymentMethodId, req.get('Idempotency-Key'));
 
     res.status(200).json({
+        success: true,
         message: 'Wallet recharge processed',
         data: result
     });
 });
 
-export { buyPost, refund, getPaymentDetails, getAllPaymentsUser, rechargeWallet };
+const getSavedCards = catchAsync(async (req, res) => {
+    if (!req.user || !req.user.id) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const cards = await GetSavedCards(req.user.id);
+
+    res.status(200).json({
+        success: true,
+        message: 'Saved cards retrieved successfully',
+        data: cards,
+        timestamp: new Date().toISOString()
+    });
+});
+
+export { buyPost, refund, getPaymentDetails, getAllPaymentsUser, rechargeWallet, getSavedCards };
 
 
 

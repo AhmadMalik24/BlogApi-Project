@@ -99,6 +99,14 @@ const userSchema = new mongoose.Schema({
     website: String,
     productDescription: String
   },
+  savedPaymentMethods: [{
+    paymentMethodId: { type: String, required: true },
+    brand: String,
+    last4: String,
+    expMonth: Number,
+    expYear: Number,
+    savedAt: { type: Date, default: Date.now }
+  }],
   savedPosts: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Post'
@@ -153,6 +161,8 @@ userSchema.methods.hasPremiumAccess = async function () {
   });
   return !!subscription;
 };
+
+
 
 const User = mongoose.model('User', userSchema);
 export default User;

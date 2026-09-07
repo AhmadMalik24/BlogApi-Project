@@ -1,6 +1,7 @@
-import { User } from "../../database/models/index.js";
+import { User, BankAccount } from "../../database/models/index.js";
 
-
+import { buildCustomAccountPayload } from "../../utils/helpers.js";
+import { stripe } from "../../config/stripe.js";
 const UpdateUserDetails = async (userId, updateData) => {
     const user = await User.findById(userId);
     if (!user) {
@@ -19,11 +20,13 @@ const UpdateUserDetails = async (userId, updateData) => {
 };
 
 const GetUserDetails = async (userId) => {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select('-password -__v -stripeConnectAccountId -savedPaymentMethods'); // Exclude sensitive fields like password and version key
     if (!user) {
         throw new Error('User not found');
     }
-    return user;
+    const BankAccounts = await BankAccount.find({ user: user.id });
+    console.log("Bank Accounts:", BankAccounts);
+    return { user, BankAccounts };
 };
 
 const SaveStripeOnboardingProfile = async (userId, profile) => {
@@ -43,6 +46,24 @@ const SaveStripeOnboardingProfile = async (userId, profile) => {
         dateOfBirth
     };
     await user.save();
+
+    // ==========================================
+    // CLEAN STRIPE SYNC LOGIC USING UTILITY
+    // ==========================================
+    if (user.stripeConnectAccountId) {
+        try {
+            // Pass true because we are updating an existing account!
+            const updatePayload = buildCustomAccountPayload(user, true);
+
+            await stripe.accounts.update(user.stripeConnectAccountId, updatePayload);
+            console.log(`✅ Successfully synced KYC data to Stripe for account: ${user.stripeConnectAccountId}`);
+
+        } catch (stripeError) {
+            console.error('❌ Stripe Sync Error:', stripeError.message);
+            throw new Error(`Profile saved locally, but Stripe rejected the data: ${stripeError.message}`);
+        }
+    }
+
     return user.stripeOnboardingProfile;
 };
 

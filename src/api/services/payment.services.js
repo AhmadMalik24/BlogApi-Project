@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 
-import { User, Payment, Post } from "../../database/models/index.js";
+import { User, Payment, Post, Withdrawal,BankAccount,Category } from "../../database/models/index.js";
 import { stripe, walletCurrency } from "./../../config/stripe.js";
 
 const CreatePayment = async ({ user, paymentMethod, post }) => {
@@ -67,7 +67,9 @@ const CreatePayment = async ({ user, paymentMethod, post }) => {
             user: user,
             post: post,
             amount: postDoc.price,
-            method: paymentMethod,  // ✅ 'method', not 'paymentMethod'
+            method: paymentMethod,
+            currentBalance: userDoc.walletBalance + postDoc.price, // Before deduction
+            newBalance: userDoc.walletBalance, // After deduction
             status: 'completed'
         });
         await payment.save({ session });
@@ -155,7 +157,6 @@ const GetPaymentDetails = async (paymentId, userId) => {
 
 
 const GetAllPaymentsForUser = async (userId, limit, afterId) => {
-
     const query = { user: userId };
     if (afterId) {
         // Decode the Base64 cursor to get the actual ID
@@ -163,28 +164,48 @@ const GetAllPaymentsForUser = async (userId, limit, afterId) => {
         query._id = { $gt: new mongoose.Types.ObjectId(decodedCursor) };
     }
 
-    const payments = await Payment.find(query)
-        .populate('post')
-        .sort({ createdAt: -1 })
-        .limit(limit + 1);
-
+    const payments = await Promise.all([
+        Payment.find(query)
+            .populate('post','title price isPremium categories')
+            .lean() // Converts Mongoose documents to plain JS objects so we can modify them
+            .sort({ createdAt: -1 })
+            .limit(limit + 1),
+        Withdrawal.find(query)
+            .populate('bankAccount','accountHolderName bankName accountNumber accountType last4 verificationStatus verifiedAt isVerified ')
+            .select(" amount fee netAmount bankAccountLast4 requestedAt")
+    ]);
     const hasMore = payments.length > limit;
     const data = hasMore ? payments.slice(0, limit) : payments;
 
+    // Sanitize the data to hide earnings if the user is only a buyer
+    const sanitizedData = data.map(payment => {
+        if (payment.post) {
+            // Check if the requesting user is the owner of the post 
+            // (Note: change 'user' to 'author' if your Post schema uses a different field name for the creator)
+            const isOwner = payment.post.user && payment.post.user.toString() === userId.toString();
+
+            if (!isOwner) {
+                // Hide sensitive earnings/revenue metrics from the buyer
+                delete payment.post.totalEarnings;
+                // Add any other creator-only fields here if needed (e.g., delete payment.post.revenue)
+            }
+        }
+        return payment;
+    });
+
     let nextCursor = null;
-    if (hasMore && data.length > 0) {
-        const lastItem = data[data.length - 1];
+    if (hasMore && sanitizedData.length > 0) {
+        const lastItem = sanitizedData[sanitizedData.length - 1];
         // Encode the _id as Base64
         nextCursor = Buffer.from(lastItem._id.toString()).toString('base64');
     }
 
     return {
-        payments: data,
+        payments: sanitizedData,
         hasMore: hasMore,
         nextCursor: nextCursor
     };
 };
-
 const RechargeWallet = async (userId, amount, paymentMethodId, requestIdempotencyKey) => {
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -314,10 +335,35 @@ const RechargeWallet = async (userId, amount, paymentMethodId, requestIdempotenc
             throw paymentError;
         }
 
+        if (paymentIntent.payment_method_details?.card) {
+            // Ensure the array exists
+            if (!user.savedPaymentMethods) {
+                user.savedPaymentMethods = [];
+            }
+
+            // Check if we already have this card saved by its Stripe pm_ ID
+            const cardAlreadySaved = user.savedPaymentMethods.some(
+                card => card.paymentMethodId === paymentMethodId
+            );
+
+            if (!cardAlreadySaved) {
+                user.savedPaymentMethods.push({
+                    paymentMethodId: paymentMethodId,
+                    brand: paymentIntent.payment_method_details.card.brand,
+                    last4: paymentIntent.payment_method_details.card.last4,
+                    expMonth: paymentIntent.payment_method_details.card.exp_month,
+                    expYear: paymentIntent.payment_method_details.card.exp_year
+                });
+                await user.save({ session });
+                console.log(`💾 Card ending in ${paymentIntent.payment_method_details.card.last4} saved locally.`);
+            }
+        }
+
         // 5. Create payment record (status: pending)
         const payment = new Payment({
             user: userId,
             amount: amount,
+            currentBalance: user.walletBalance, // Before recharge
             method: 'stripe',
             status: 'pending', // Webhook will update
             stripePaymentId: paymentIntent.id,
@@ -341,7 +387,7 @@ const RechargeWallet = async (userId, amount, paymentMethodId, requestIdempotenc
             paymentIntentId: paymentIntent.id,
             clientSecret: paymentIntent.client_secret,
             status: paymentIntent.status,
-            payment: payment,
+            //payment: payment,
             message: paymentIntent.status === 'succeeded'
                 ? 'Payment successful, wallet will be updated shortly'
                 : 'Payment processing, wallet will be updated when confirmed'
@@ -349,10 +395,36 @@ const RechargeWallet = async (userId, amount, paymentMethodId, requestIdempotenc
 
     } catch (error) {
         console.error('❌ Recharge error:', error.message);
-        await session.abortTransaction();
+        if (session.inTransaction()) await session.abortTransaction();
         session.endSession();
         throw error;
     }
 };
 
-export { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser, RechargeWallet };
+const GetSavedCards = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    if (!user.stripeCustomerId) {
+        return []; // No customer ID means they haven't saved any cards yet
+    }
+
+    // Ask Stripe for all cards attached to this customer
+    const paymentMethods = await stripe.paymentMethods.list({
+        customer: user.stripeCustomerId,
+        type: 'card',
+    });
+
+    // Format the data nicely for the frontend
+    return paymentMethods.data.map(pm => ({
+        paymentMethodId: pm.id,
+        brand: pm.card.brand,
+        last4: pm.card.last4,
+        expMonth: pm.card.exp_month,
+        expYear: pm.card.exp_year
+    }));
+};
+
+export { CreatePayment, RefundPayment, GetPaymentDetails, GetAllPaymentsForUser, RechargeWallet, GetSavedCards };

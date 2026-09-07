@@ -2,56 +2,15 @@ import Joi from "joi";
 
 // Bank account validation
 const bankAccountValidationSchema = Joi.object({
-    accountHolderName: Joi.string()
-        .trim()
-        .min(2)
-        .max(100)
+    bankTokenId: Joi.string()
+        .pattern(/^btok_[a-zA-Z0-9_]+$/)
         .required()
         .messages({
-            'string.base': 'Account holder name must be a string',
-            'string.min': 'Name must be at least 2 characters',
-            'string.max': 'Name cannot exceed 100 characters',
-            'any.required': 'Account holder name is required'
-        }),
-
-    accountNumber: Joi.string()
-        .pattern(/^\d{8,20}$/)
-        .required()
-        .messages({
-            'string.base': 'Account number must be a string',
-            'string.pattern.base': 'Account number must be 8-20 digits',
-            'any.required': 'Account number is required'
-        }),
-
-    routingNumber: Joi.string()
-        .pattern(/^\d{6,9}$/)
-        .required()
-        .messages({
-            'string.base': 'Routing number must be a string',
-            'string.pattern.base': 'Routing number must be 6-9 digits (for AU BSB or US routing)',
-            'any.required': 'Routing number is required'
-        }),
-
-    accountType: Joi.string()
-        .valid('checking', 'savings')
-        .required()
-        .messages({
-            'string.base': 'Account type must be a string',
-            'any.only': 'Account type must be either checking or savings',
-            'any.required': 'Account type is required'
-        }),
-
-    bankName: Joi.string()
-        .trim()
-        .max(100)
-        .optional()
-        .messages({
-            'string.base': 'Bank name must be a string',
-            'string.max': 'Bank name cannot exceed 100 characters'
+            'string.base': 'Bank token ID must be a string',
+            'string.pattern.base': 'Invalid Stripe Bank Token ID format (should be btok_xxx...)',
+            'any.required': 'Bank token ID is required'
         })
-});
-
-// Verification sync validation. Stripe Connect, not client-provided microdeposit values,
+});// Verification sync validation. Stripe Connect, not client-provided microdeposit values,
 // is the source of truth for an external account's status.
 const verifyBankAccountValidationSchema = Joi.object({
     bankAccountId: Joi.string()

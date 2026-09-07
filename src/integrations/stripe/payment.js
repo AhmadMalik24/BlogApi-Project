@@ -23,6 +23,7 @@ async function handlePaymentSuccess(paymentIntent) {
         paymentRecord.status = 'completed';
         paymentRecord.failedReason = undefined;
         paymentRecord.failedAt = undefined;
+        paymentRecord.newBalance = user.walletBalance + paymentIntent.amount / 100; // Update new balance after recharge
         await paymentRecord.save({ session });
         user.walletBalance += paymentIntent.amount / 100;
         await user.save({ session });

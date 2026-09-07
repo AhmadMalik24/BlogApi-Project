@@ -1,11 +1,15 @@
 import express from 'express';
 import { protect } from "../../middleware/auth.js";
-import { buyPost, refund, getPaymentDetails, getAllPaymentsUser, rechargeWallet } from "../../controllers/payment.controller.js";
-import { paymentValidationSchema, postIdValidationSchema, refundValidationSchema } from "../../validations/payment.validation.js";
+import { buyPost, refund, getPaymentDetails, getAllPaymentsUser, rechargeWallet ,getSavedCards} from "../../controllers/payment.controller.js";
+import {  postIdValidationSchema, refundValidationSchema } from "../../validations/payment.validation.js";
 import validate from '../../middleware/validation.js';
 const paymentRouter = express.Router();
 
 paymentRouter.use(protect);
+
+
+paymentRouter.post('/cards', getSavedCards);
+
 
 // ✅ SPECIFIC ROUTES FIRST (no :param)
 paymentRouter.get('/history', getAllPaymentsUser);        // ← MOVE THIS UP!
@@ -22,7 +26,7 @@ paymentRouter.get('/history', getAllPaymentsUser);        // ← MOVE THIS UP!
  */
 
 
-paymentRouter.post('/recharge', validate(paymentValidationSchema, 'body'), rechargeWallet);         // ← Specific path with validation
+paymentRouter.post('/recharge', rechargeWallet);         // ← Specific path with validation
 
 /**
  * @swagger
@@ -136,7 +140,7 @@ paymentRouter.post('/refund/:paymentId', validate(refundValidationSchema), refun
  */
 
 // ✅ DYNAMIC ROUTE LAST (with :param)
-paymentRouter.get('/:paymentId', validate(paymentValidationSchema), validate(postIdValidationSchema, 'params'), getPaymentDetails);      // ← MOVE THIS DOWN!
+paymentRouter.get('/:paymentId', validate(postIdValidationSchema, 'params'), getPaymentDetails);      // ← MOVE THIS DOWN!
 
 /**
  * @swagger

@@ -4,12 +4,12 @@ import {
     addBankAccount,
     createOnboardingLink,
     getBankAccounts,
-    verifyBankAccount,
     deleteBankAccount,
     requestWithdrawal,
     getWithdrawalHistory,
     getWithdrawalDetails
 } from '../../controllers/withdrawal.controller.js';
+
 import validate from '../../middleware/validation.js';
 import {
     bankAccountValidationSchema,
@@ -151,11 +151,6 @@ withdrawalRouter.delete('/bank-accounts/:bankAccountId', deleteBankAccount);
  *       401:
  *         description: Authentication required
  */
-withdrawalRouter.post(
-    '/bank-accounts/verify',
-    validate(verifyBankAccountValidationSchema, 'body'),
-    verifyBankAccount
-);
 
 // ============================================
 // WITHDRAWAL ROUTES

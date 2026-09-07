@@ -3,7 +3,6 @@ import {
     AddBankAccount,
     CreateConnectOnboardingLink,
     GetBankAccounts,
-    VerifyBankAccount,
     DeleteBankAccount,
     RequestWithdrawal,
     GetWithdrawalHistory,
@@ -15,7 +14,8 @@ import {
 // ============================================
 
 const addBankAccount = catchAsync(async (req, res) => {
-    const { accountHolderName, accountNumber, routingNumber, accountType, bankName } = req.body;
+    // 1. Extract the new secure token instead of raw account details
+    const { bankTokenId } = req.body;
 
     if (!req.user || !req.user.id) {
         const error = new Error('Authentication required');
@@ -23,12 +23,9 @@ const addBankAccount = catchAsync(async (req, res) => {
         throw error;
     }
 
+    // 2. Pass the token to the service
     const result = await AddBankAccount(req.user.id, {
-        accountHolderName,
-        accountNumber,
-        routingNumber,
-        accountType,
-        bankName
+        bankTokenId
     });
 
     res.status(201).json({
@@ -73,24 +70,6 @@ const getBankAccounts = catchAsync(async (req, res) => {
     });
 });
 
-const verifyBankAccount = catchAsync(async (req, res) => {
-    const { bankAccountId } = req.body;
-
-    if (!req.user || !req.user.id) {
-        const error = new Error('Authentication required');
-        error.statusCode = 401;
-        throw error;
-    }
-
-    const result = await VerifyBankAccount(req.user.id, bankAccountId);
-
-    res.status(200).json({
-        success: result.success,
-        message: result.message,
-        data: result,
-        timestamp: new Date().toISOString()
-    });
-});
 
 const deleteBankAccount = catchAsync(async (req, res) => {
     const { bankAccountId } = req.params;
@@ -175,7 +154,6 @@ export {
     addBankAccount,
     createOnboardingLink,
     getBankAccounts,
-    verifyBankAccount,
     deleteBankAccount,
     requestWithdrawal,
     getWithdrawalHistory,
