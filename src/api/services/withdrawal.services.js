@@ -150,6 +150,9 @@ const DeleteBankAccount = async (userId, bankAccountId) => {
             bankAccount.stripeConnectAccountId,
             bankAccount.bankAccountId
         );
+
+        await stripe.accounts.del(bankAccount.stripeConnectAccountId);
+
         await bankAccount.deleteOne({ session });
 
         await session.commitTransaction();
