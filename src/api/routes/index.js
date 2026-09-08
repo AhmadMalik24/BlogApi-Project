@@ -6,6 +6,7 @@ import paymentRouter from "./v1/payment.routes.js";
 import userRouter from "./v1/user.routes.js";
 import withdrawalRouter from "./v1/withdrawal.routes.js";
 import handleStripeWebhook from "../../integrations/stripe/webhook.js";
+import chatRouter from "./v1/chat.routes.js";
 
 const apiRouter = express.Router();
 
@@ -19,6 +20,7 @@ apiRouter.use('/v1/Post', post);
 apiRouter.use('/v1/payment', paymentRouter);
 apiRouter.use('/v1/withdrawal', withdrawalRouter);
 apiRouter.use('/v1/user', userRouter);
+apiRouter.use('/v1/room', chatRouter);
 
 
 

@@ -4,14 +4,12 @@ const messageSchema = new mongoose.Schema({
     chatroom: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Chatroom',
-        required: true,
-        index: true
+        required: true
     },
     sender: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: true,
-        index: true
+        required: true
     },
     content: {
         type: String,

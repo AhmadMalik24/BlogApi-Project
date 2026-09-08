@@ -4,8 +4,7 @@ const chatroomSchema = new mongoose.Schema({
     participants: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: true,
-        index: true
+        required: true
     }],
     lastMessage: {
         type: mongoose.Schema.Types.ObjectId,

@@ -5,6 +5,8 @@ import Category from './Category.model.js';
 import Token from './Token.model.js';
 import BankAccount from './BankAccount.model.js';
 import Withdrawal from './Withdrawal.model.js';
+import Chatroom from './Chatroom.model.js';
+import Message from './Message.model.js';
 
 export {
   User,
@@ -13,5 +15,7 @@ export {
   Category,
   Token,
   BankAccount,
-  Withdrawal
+  Withdrawal,
+  Chatroom,
+  Message
 };
