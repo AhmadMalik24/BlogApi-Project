@@ -1,5 +1,37 @@
 import { User, Chatroom, Message } from '../../database/models/index.js';
 
+const GetAllUsers = async (limit, afterId) => {
+    try {
+        const query = {};
+
+        if (afterId) {
+            // Decode the Base64 cursor to get the actual ID
+            const decodedCursor = Buffer.from(afterId, 'base64').toString('utf8');
+            query._id = { $gt: decodedCursor };
+        }
+
+        const users = await User.find(query)
+            .select('username email')
+            .limit(limit + 1)
+            .sort({ _id: 1 });
+
+        const hasMore = users.length > limit;
+        const data = hasMore ? users.slice(0, limit) : users;
+
+        let nextCursor = null;
+        if (hasMore && data.length > 0) {
+            const lastUserId = data[data.length - 1]._id.toString();
+            nextCursor = Buffer.from(lastUserId).toString('base64');
+        }
+
+        return { data, nextCursor };
+    } catch (error) {
+        throw new Error(`Error fetching users: ${error.message}`);
+    }
+};
+
+
+
 const CreateChatroom = async (userId, participantId) => {
     try {
         const user = await User.findById(userId);
@@ -44,11 +76,12 @@ const CreateChatroom = async (userId, participantId) => {
 const GetChatrooms = async (userId) => {
     try {
         const chatrooms = await Chatroom.find({
-            participants: userId
+            participants: userId,
+            hiddenFor: { $ne: userId }
         })
-        .populate('participants', 'username email ')
-        .populate('lastMessage','content createdAt')
-        .lean();
+            .populate('participants', 'username email ')
+            .populate('lastMessage', 'content createdAt')
+            .lean();
 
         const formattedChatrooms = chatrooms.map(chatroom => {
             const otherParticipant = chatroom.participants.find(participant => participant._id.toString() !== userId.toString());
@@ -64,6 +97,32 @@ const GetChatrooms = async (userId) => {
         return formattedChatrooms;
     } catch (error) {
         throw new Error(`Error fetching chatrooms: ${error.message}`);
+    }
+};
+
+const DeleteChatroom = async (userId, chatroomId) => {
+    try {
+        const chatroom = await Chatroom.findById({ _id: chatroomId });
+        if (!chatroom) {
+            throw new Error('Chatroom not found');
+        }
+
+        if (!chatroom.participants.includes(userId)) {
+            throw new Error('User is not a participant of this chatroom');
+        }
+
+        await Chatroom.findByIdAndUpdate({ _id: chatroomId }, {
+            $pull: { clearedAt: { user: userId } }
+        });
+
+        await Chatroom.findByIdAndUpdate({ _id: chatroomId }, {
+            $push: { clearedAt: { user: userId, timestamp: new Date() } },
+            $addToSet: { hiddenFor: userId }
+        });
+
+        return { success: true, message: 'Chatroom hidden successfully' };
+    } catch (error) {
+        throw new Error(`Error hiding chatroom: ${error.message}`);
     }
 };
 
@@ -88,8 +147,10 @@ const SendMessage = async (senderId, chatroomId, content) => {
         await message.save();
 
         // Update the last message in the chatroom
-        chatroom.lastMessage = message._id;
-        await chatroom.save();
+        await Chatroom.findByIdAndUpdate(chatroomId, {
+            lastMessage: message._id,
+            $set: { hiddenFor: [] } // Pops the chat back into inboxes, but preserves clearedAt history filtering
+        });
 
         return message;
     } catch (error) {
@@ -97,38 +158,67 @@ const SendMessage = async (senderId, chatroomId, content) => {
     }
 };
 
-const GetMessages = async (userId,chatroomId) => {
+const GetMessages = async (userId, chatroomId, limit = 20, afterId = null) => {
     try {
-        const chatroom = await Chatroom.findOne({_id: chatroomId, participants: userId });
+        const chatroom = await Chatroom.findOne({ _id: chatroomId, participants: userId });
         if (!chatroom) {
             throw new Error('Chatroom not found or user is not a participant');
         }
-        const messages = await Message.find({ chatroom: chatroomId })
-            .populate('sender', 'username')
-            .populate('seenBy.user', 'username')
-            .sort({ createdAt: 1 })
+
+        const userClearRecord = chatroom.clearedAt.find(
+            record => record.user.toString() === userId.toString()
+        );
+        const clearedTime = userClearRecord ? userClearRecord.timestamp : new Date(0);
+
+        // Build the message query combining chatroom, cleared time, and cursor
+        const query = {
+            chatroom: chatroomId,
+            createdAt: { $gt: clearedTime }
+        };
+
+        if (afterId) {
+            const decodedCursor = Buffer.from(afterId, 'base64').toString('utf8');
+            query._id = { $gt: decodedCursor };
+        }
+
+        // Fetch limit + 1 to check if there are more pages
+        const messages = await Message.find(query)
+            .populate('sender', 'username email')
+            .populate('seenBy.user', 'username ')
+            .sort({ _id: 1 }) // Cursor pagination relies on sorting by _id
+            .limit(limit + 1)
             .lean();
 
-        const formattedMessages = messages.map(msg => {
+        const hasMore = messages.length > limit;
+        const data = hasMore ? messages.slice(0, limit) : messages;
+
+        let nextCursor = null;
+        if (hasMore && data.length > 0) {
+            const lastMessageId = data[data.length - 1]._id.toString();
+            nextCursor = Buffer.from(lastMessageId).toString('base64');
+        }
+
+        const formattedMessages = data.map(msg => {
             const isSender = msg.sender._id.toString() === userId.toString();
-            return{
+            return {
                 id: msg._id,
                 content: msg.content,
                 sender: {
                     id: msg.sender._id,
                     username: msg.sender.username
                 },
-                seenBy: msg.seenBy.map(seen => ({
-                    userId: seen.user,
-                    seenAt: seen.seenAt
-                })),
+                seenBy: isSender ? msg.seenBy : [],
                 isSender: isSender,
                 createdAt: msg.createdAt,
-                updatedAt: msg.updatedAt    
-            }
-        })
-        
-        return {formattedMessages, chatroom_Id: chatroom._id};
+                updatedAt: msg.updatedAt
+            };
+        });
+
+        return { 
+            formattedMessages, 
+            chatroom_Id: chatroom._id,
+            nextCursor 
+        };
     } catch (error) {
         throw new Error(`Error fetching messages: ${error.message}`);
     }
@@ -162,7 +252,6 @@ const DeleteMessage = async (userId, messageId) => {
 };
 
 const MarkMessagesAsSeen = async (userId, roomId) => {
-    console.log('MarkMessagesAsSeen called with userId:', userId, 'roomId:', roomId);
     const chatroom = await Chatroom.findOne({ _id: roomId, participants: userId });
     if (!chatroom) {
         const error = new Error('Chatroom not found or unauthorized');
@@ -173,6 +262,7 @@ const MarkMessagesAsSeen = async (userId, roomId) => {
     await Message.updateMany(
         {
             chatroom: roomId,
+            sender: { $ne: userId },
             'seenBy.user': { $ne: userId }
         },
         {
@@ -185,5 +275,8 @@ const MarkMessagesAsSeen = async (userId, roomId) => {
     return { success: true, message: 'Messages marked as seen' };
 };
 
-export { CreateChatroom, GetChatrooms, SendMessage, GetMessages, DeleteMessage,MarkMessagesAsSeen };
+
+
+
+export { GetAllUsers,CreateChatroom, GetChatrooms, SendMessage, GetMessages, DeleteMessage, MarkMessagesAsSeen, DeleteChatroom };
 

@@ -1,5 +1,21 @@
-import { CreateChatroom, GetChatrooms,SendMessage,GetMessages,DeleteMessage,MarkMessagesAsSeen } from "../services/chat.services.js";
+import { GetAllUsers, CreateChatroom, GetChatrooms, SendMessage, GetMessages, DeleteMessage, MarkMessagesAsSeen, DeleteChatroom } from "../services/chat.services.js";
 import catchAsync from "../../utils/catchAsync.js";
+
+const getAllUsers = catchAsync(async (req, res) => {
+
+    const limit = parseInt(req.query.limit) || 10; // Default limit to 10 if not provided
+    const afterId = req.query.afterId || null; // Get the last user ID from the query parameter
+
+    const { data: users, nextCursor } = await GetAllUsers(limit, afterId);
+
+    res.status(200).json({
+        success: true,
+        message: `Users Found: ${users.length}`,
+        data: users,
+        timestamp: new Date().toISOString(),
+        nextCursor: nextCursor
+    });
+});
 
 const createChatroom = catchAsync(async (req, res) => {
     const { participantId } = req.body;
@@ -60,21 +76,23 @@ const sendMessage = catchAsync(async (req, res) => {
 
 const getMessages = catchAsync(async (req, res) => {
     const { chatroomId } = req.params;
-
+    const limit = parseInt(req.query.limit) || 10; // Default limit to 10 if not provided
+    const afterId = req.query.afterId || null; // Get the last message ID from the query parameter
     if (!req.user || !req.user.id) {
         const error = new Error('Authentication required');
         error.statusCode = 401;
         throw error;
     }
 
-    const {formattedMessages, chatroom_Id} = await GetMessages(req.user.id, chatroomId);
+    const { formattedMessages, chatroom_Id,nextCursor } = await GetMessages(req.user.id, chatroomId, limit, afterId);
 
     res.status(200).json({
         success: true,
         message: `Found ${formattedMessages.length} message(s)`,
         chatroom: chatroom_Id,
         data: formattedMessages,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        nextCursor: nextCursor
     });
 });
 
@@ -114,6 +132,26 @@ const markMessagesAsSeen = catchAsync(async (req, res) => {
     });
 });
 
-export { createChatroom, getChatrooms, sendMessage, getMessages, deleteMessage, markMessagesAsSeen };
+
+const deleteChatroom = catchAsync(async (req, res) => {
+    const { chatroomId } = req.params;
+
+    if (!req.user || !req.user.id) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const result = await DeleteChatroom(req.user.id, chatroomId);
+
+    res.status(200).json({
+        success: true,
+        message: result.message,
+        timestamp: new Date().toISOString()
+    });
+});
+
+export { getAllUsers, createChatroom, getChatrooms, sendMessage, getMessages, deleteMessage, markMessagesAsSeen, deleteChatroom };
+
 
 

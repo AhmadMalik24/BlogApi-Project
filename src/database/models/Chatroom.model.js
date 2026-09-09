@@ -9,7 +9,13 @@ const chatroomSchema = new mongoose.Schema({
     lastMessage: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Message'
-    }
+    },
+    hiddenFor: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    clearedAt:[{user:mongoose.Schema.Types.ObjectId, timestamp: Date}]
+
 }, {
     timestamps: true,
     toJSON: { virtuals: true },
