@@ -1,4 +1,4 @@
-import { CreateChatroom, GetChatrooms } from "../services/chat.services.js";
+import { CreateChatroom, GetChatrooms,SendMessage,GetMessages,DeleteMessage,MarkMessagesAsSeen } from "../services/chat.services.js";
 import catchAsync from "../../utils/catchAsync.js";
 
 const createChatroom = catchAsync(async (req, res) => {
@@ -37,4 +37,83 @@ const getChatrooms = catchAsync(async (req, res) => {
     });
 });
 
-export { createChatroom, getChatrooms };
+
+const sendMessage = catchAsync(async (req, res) => {
+    const { chatroomId, content } = req.body;
+
+    if (!req.user || !req.user.id) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const message = await SendMessage(req.user.id, chatroomId, content);
+
+    res.status(201).json({
+        success: true,
+        message: 'Message sent successfully',
+        data: message,
+        timestamp: new Date().toISOString()
+    });
+});
+
+
+const getMessages = catchAsync(async (req, res) => {
+    const { chatroomId } = req.params;
+
+    if (!req.user || !req.user.id) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const {formattedMessages, chatroom_Id} = await GetMessages(req.user.id, chatroomId);
+
+    res.status(200).json({
+        success: true,
+        message: `Found ${formattedMessages.length} message(s)`,
+        chatroom: chatroom_Id,
+        data: formattedMessages,
+        timestamp: new Date().toISOString()
+    });
+});
+
+const deleteMessage = catchAsync(async (req, res) => {
+    const { messageId } = req.params;
+
+    if (!req.user || !req.user.id) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const result = await DeleteMessage(req.user.id, messageId);
+
+    res.status(200).json({
+        success: true,
+        message: result.message,
+        timestamp: new Date().toISOString()
+    });
+});
+
+const markMessagesAsSeen = catchAsync(async (req, res) => {
+    const { chatroomId } = req.body;
+
+    if (!req.user || !req.user.id) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    await MarkMessagesAsSeen(req.user.id, chatroomId);
+
+    res.status(200).json({
+        success: true,
+        message: 'Messages marked as seen successfully',
+        timestamp: new Date().toISOString()
+    });
+});
+
+export { createChatroom, getChatrooms, sendMessage, getMessages, deleteMessage, markMessagesAsSeen };
+
+

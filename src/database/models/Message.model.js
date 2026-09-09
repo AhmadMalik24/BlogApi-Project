@@ -37,4 +37,7 @@ const messageSchema = new mongoose.Schema({
 messageSchema.index({ chatroom: 1, createdAt: 1 });
 
 const Message = mongoose.model('Message', messageSchema);
+
+
+
 export default Message;

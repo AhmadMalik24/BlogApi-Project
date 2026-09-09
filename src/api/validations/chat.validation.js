@@ -14,6 +14,16 @@ const createChatroomSchema = Joi.object({
 });
 
 const sendMessageSchema = Joi.object({
+    chatroomId: Joi.string()
+        .hex()
+        .length(24)
+        .required()
+        .messages({
+            'string.base': 'Chatroom ID must be a string',
+            'string.hex': 'Chatroom ID must be a valid hexadecimal string',
+            'string.length': 'Chatroom ID must be 24 characters long',
+            'any.required': 'Chatroom ID is required'
+        }),
     content: Joi.string()
         .min(1)
         .max(2000)
